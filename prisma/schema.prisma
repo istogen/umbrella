@@ -1,0 +1,95 @@
+// ==========================================
+// PRISMA DATABASE SCHEMA (PostgreSQL)
+// DeltaClient & uc.zone Clone Architecture
+// ==========================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  RESELLER
+  ADMIN
+}
+
+enum ProductStatus {
+  UNDETECTED
+  DETECTED
+  MAINTENANCE
+  FROZEN
+}
+
+model User {
+  id            String         @id @default(uuid()) @db.Uuid
+  username      String         @unique @db.VarChar(50)
+  email         String         @unique @db.VarChar(255)
+  passwordHash  String         @map("password_hash") @db.VarChar(255)
+  role          Role           @default(USER)
+  hwid          String?        @db.VarChar(255) // Hardware ID hash, null until first loader login
+  hwidUpdatedAt DateTime?      @map("hwid_updated_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  lastLogin     DateTime?      @map("last_login")
+
+  subscriptions Subscription[]
+  usedKeys      LicenseKey[]   @relation("UsedByUser")
+
+  @@map("users")
+}
+
+model Product {
+  id            String         @id @default(uuid()) @db.Uuid
+  name          String         @unique @db.VarChar(100)
+  description   String         @db.Text
+  version       String         @db.VarChar(50)
+  status        ProductStatus  @default(UNDETECTED)
+  imageUrl      String         @map("image_url") @db.VarChar(512)
+  price3Days    Float          @map("price_3days")
+  price30Days   Float          @map("price_30days")
+  priceLifetime Float          @map("price_lifetime")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+  licenseKeys   LicenseKey[]
+
+  @@map("products")
+}
+
+model Subscription {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  expiresAt   DateTime? @map("expires_at") // null or distant future represents Lifetime
+  isFrozen    Boolean   @default(false) @map("is_frozen")
+  frozenAt    DateTime? @map("frozen_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("subscriptions")
+}
+
+model LicenseKey {
+  id            String    @id @default(uuid()) @db.Uuid
+  key           String    @unique @db.VarChar(50) // Format: XXXX-XXXX-XXXX-XXXX
+  productId     String    @map("product_id") @db.Uuid
+  durationDays  Int       @map("duration_days") // e.g. 3, 30, 9999 (lifetime)
+  isUsed        Boolean   @default(false) @map("is_used")
+  usedByUserId  String?   @map("used_by_user_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  activatedAt   DateTime? @map("activated_at")
+
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  usedByUser    User?     @relation("UsedByUser", fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("license_keys")
+}
